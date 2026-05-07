@@ -3989,7 +3989,7 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
     if (rpu_nal) {
         if (s->rpu_buf) {
             av_buffer_unref(&s->rpu_buf);
-            av_log(s->avctx, AV_LOG_WARNING, "Multiple Dolby Vision RPUs found in one AU. Skipping previous.\n");
+            av_log(s->avctx, AV_LOG_VERBOSE, "Multiple Dolby Vision RPUs found in one AU. Skipping previous.\n");
         }
 
         s->rpu_buf = av_buffer_alloc(rpu_nal->raw_size - 2);
