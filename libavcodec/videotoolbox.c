@@ -124,6 +124,8 @@ int ff_videotoolbox_buffer_append(VTContext *vtctx,
     return 0;
 }
 
+static int videotoolbox_dovi_should_preserve_attachments(AVCodecContext *avctx);
+
 static int videotoolbox_postproc_frame(void *avctx, AVFrame *frame)
 {
     int ret;
@@ -140,7 +142,8 @@ static int videotoolbox_postproc_frame(void *avctx, AVFrame *frame)
     frame->crop_top = 0;
     frame->crop_bottom = 0;
 
-    if ((ret = av_vt_pixbuf_set_attachments(avctx, ref->pixbuf, frame)) < 0)
+    if (!videotoolbox_dovi_should_preserve_attachments(avctx) &&
+        (ret = av_vt_pixbuf_set_attachments(avctx, ref->pixbuf, frame)) < 0)
         return ret;
 
     frame->data[3] = (uint8_t*)ref->pixbuf;
@@ -868,6 +871,11 @@ static int videotoolbox_dovi_is_apple_hevc(const AVDOVIDecoderConfigurationRecor
     default:
         return 0;
     }
+}
+
+static int videotoolbox_dovi_should_preserve_attachments(AVCodecContext *avctx)
+{
+    return videotoolbox_dovi_is_apple_hevc(videotoolbox_dovi_get_conf(avctx));
 }
 
 enum PlezyDoviConversionMode {
