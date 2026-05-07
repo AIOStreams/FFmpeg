@@ -1516,6 +1516,49 @@ static int videotoolbox_hevc_decode_slice(AVCodecContext *avctx,
     return videotoolbox_common_decode_slice(avctx, buffer, size);
 }
 
+static int videotoolbox_hevc_append_dovi_rpus(AVCodecContext *avctx)
+{
+    HEVCContext *h = avctx->priv_data;
+    VTContext *vtctx = avctx->internal->hwaccel_priv_data;
+    const AVDOVIDecoderConfigurationRecord *dovi = videotoolbox_dovi_get_conf(avctx);
+    int convert_p7 = videotoolbox_dovi_needs_p81_conversion(dovi);
+    int appended = 0;
+
+    if (!videotoolbox_dovi_is_apple_hevc(dovi))
+        return 0;
+
+    for (int i = 0; i < h->pkt.nb_nals; i++) {
+        H2645NAL *nal = &h->pkt.nals[i];
+        int ret;
+
+        if (nal->type != HEVC_NAL_UNSPEC62 || nal->raw_size <= 2)
+            continue;
+
+        ret = convert_p7 ?
+              videotoolbox_hevc_decode_dovi_p81_rpu(avctx, nal->raw_data, nal->raw_size) :
+              videotoolbox_common_decode_slice(avctx, nal->raw_data, nal->raw_size);
+        if (ret < 0) {
+            av_log(avctx, AV_LOG_WARNING,
+                   "Failed to %s Dolby Vision RPU; stripping this RPU.\n",
+                   convert_p7 ? "convert" : "append");
+            continue;
+        }
+        appended++;
+    }
+
+    if (appended > 0 && videotoolbox_dovi_log_enabled() && !vtctx->dovi_rpu_log_done) {
+        enum PlezyDoviConversionMode mode = videotoolbox_dovi_conversion_mode();
+        vtctx->dovi_rpu_log_done = 1;
+        av_log(avctx, AV_LOG_INFO,
+               "[Plezy DV] appended %d %s RPU NAL(s) to VideoToolbox sample "
+               "(mode=%s).\n",
+               appended, convert_p7 ? "converted P8.1" : "native",
+               videotoolbox_dovi_conversion_mode_name(mode));
+    }
+
+    return 0;
+}
+
 
 static int videotoolbox_hevc_decode_params(AVCodecContext *avctx,
                                            int type,
@@ -1532,7 +1575,9 @@ static int videotoolbox_hevc_end_frame(AVCodecContext *avctx)
     VTContext *vtctx = avctx->internal->hwaccel_priv_data;
     int ret;
 
-    ret = ff_videotoolbox_common_end_frame(avctx, frame);
+    ret = videotoolbox_hevc_append_dovi_rpus(avctx);
+    if (ret >= 0)
+        ret = ff_videotoolbox_common_end_frame(avctx, frame);
     vtctx->bitstream_size = 0;
     return ret;
 }
