@@ -691,9 +691,11 @@ static CMSampleBufferRef videotoolbox_sample_buffer_create(CMFormatDescriptionRe
     OSStatus status;
     CMBlockBufferRef  block_buf;
     CMSampleBufferRef sample_buf;
+    size_t sample_size;
 
     block_buf  = NULL;
     sample_buf = NULL;
+    sample_size = size;
 
     status = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault,// structureAllocator
                                                 buffer,             // memoryBlock
@@ -715,8 +717,8 @@ static CMSampleBufferRef videotoolbox_sample_buffer_create(CMFormatDescriptionRe
                                       1,                    // numSamples
                                       0,                    // numSampleTimingEntries
                                       NULL,                 // sampleTimingArray
-                                      0,                    // numSampleSizeEntries
-                                      NULL,                 // sampleSizeArray
+                                      1,                    // numSampleSizeEntries
+                                      &sample_size,         // sampleSizeArray
                                       &sample_buf);
     }
 
