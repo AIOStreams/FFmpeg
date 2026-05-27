@@ -46,9 +46,6 @@ typedef struct VTContext {
     uint8_t                     sps[3];
     bool                        reconfig_needed;
 
-    // Whether Dolby Vision RPU append diagnostics have been logged.
-    int                         dovi_rpu_log_done;
-
     void *logctx;
 } VTContext;
 
