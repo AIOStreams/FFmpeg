@@ -964,14 +964,6 @@ enum PlezyDoviConversionMode {
     PLEZY_DOVI_HEVC_STRIP,
 };
 
-static int videotoolbox_dovi_log_enabled(void)
-{
-    const char *value = getenv("PLEZY_DV_CONVERSION_LOG");
-
-    return value && (!strcmp(value, "1") || !strcmp(value, "yes") ||
-                     !strcmp(value, "true") || !strcmp(value, "on"));
-}
-
 static enum PlezyDoviConversionMode videotoolbox_dovi_conversion_mode(void)
 {
     const char *mode = getenv("PLEZY_DV_CONVERSION_MODE");
@@ -988,20 +980,6 @@ static enum PlezyDoviConversionMode videotoolbox_dovi_conversion_mode(void)
         return PLEZY_DOVI_DISABLED;
 
     return PLEZY_DOVI_AUTO;
-}
-
-static const char *videotoolbox_dovi_conversion_mode_name(enum PlezyDoviConversionMode mode)
-{
-    switch (mode) {
-    case PLEZY_DOVI_DISABLED:
-        return "disabled";
-    case PLEZY_DOVI_DV81:
-        return "dv81";
-    case PLEZY_DOVI_HEVC_STRIP:
-        return "hevc_strip";
-    default:
-        return "auto";
-    }
 }
 
 static int videotoolbox_dovi_needs_p81_conversion(const AVDOVIDecoderConfigurationRecord *dovi)
@@ -1199,28 +1177,8 @@ static int videotoolbox_start(AVCodecContext *avctx)
                            "(profile %u, compatibility %u).\n",
                            dovi->dv_profile, dovi->dv_bl_signal_compatibility_id);
                 }
-                if (videotoolbox_dovi_log_enabled()) {
-                    enum PlezyDoviConversionMode mode = videotoolbox_dovi_conversion_mode();
-                    av_log(avctx, AV_LOG_INFO,
-                           "[Plezy DV] config profile=%u level=%u compat=%u "
-                           "rpu=%u el=%u bl=%u mode=%s effective_profile=%d vt_codec=dolbyvision-hevc.\n",
-                           dovi->dv_profile, dovi->dv_level, dovi->dv_bl_signal_compatibility_id,
-                           dovi->rpu_present_flag, dovi->el_present_flag, dovi->bl_present_flag,
-                           videotoolbox_dovi_conversion_mode_name(mode),
-                           videotoolbox_dovi_effective_profile(dovi));
-                }
             } else {
                 videotoolbox->cm_codec_type = kCMVideoCodecType_HEVC;
-                if (dovi && videotoolbox_dovi_log_enabled()) {
-                    enum PlezyDoviConversionMode mode = videotoolbox_dovi_conversion_mode();
-                    av_log(avctx, AV_LOG_INFO,
-                           "[Plezy DV] config profile=%u level=%u compat=%u "
-                           "rpu=%u el=%u bl=%u mode=%s effective_profile=%d vt_codec=hevc.\n",
-                           dovi->dv_profile, dovi->dv_level, dovi->dv_bl_signal_compatibility_id,
-                           dovi->rpu_present_flag, dovi->el_present_flag, dovi->bl_present_flag,
-                           videotoolbox_dovi_conversion_mode_name(mode),
-                           videotoolbox_dovi_effective_profile(dovi));
-                }
             }
         }
         break;
@@ -1519,10 +1477,8 @@ static int videotoolbox_hevc_decode_slice(AVCodecContext *avctx,
 static int videotoolbox_hevc_append_dovi_rpus(AVCodecContext *avctx)
 {
     HEVCContext *h = avctx->priv_data;
-    VTContext *vtctx = avctx->internal->hwaccel_priv_data;
     const AVDOVIDecoderConfigurationRecord *dovi = videotoolbox_dovi_get_conf(avctx);
     int convert_p7 = videotoolbox_dovi_needs_p81_conversion(dovi);
-    int appended = 0;
 
     if (!videotoolbox_dovi_is_apple_hevc(dovi))
         return 0;
@@ -1543,17 +1499,6 @@ static int videotoolbox_hevc_append_dovi_rpus(AVCodecContext *avctx)
                    convert_p7 ? "convert" : "append");
             continue;
         }
-        appended++;
-    }
-
-    if (appended > 0 && videotoolbox_dovi_log_enabled() && !vtctx->dovi_rpu_log_done) {
-        enum PlezyDoviConversionMode mode = videotoolbox_dovi_conversion_mode();
-        vtctx->dovi_rpu_log_done = 1;
-        av_log(avctx, AV_LOG_INFO,
-               "[Plezy DV] appended %d %s RPU NAL(s) to VideoToolbox sample "
-               "(mode=%s).\n",
-               appended, convert_p7 ? "converted P8.1" : "native",
-               videotoolbox_dovi_conversion_mode_name(mode));
     }
 
     return 0;
