@@ -878,9 +878,22 @@ static int videotoolbox_dovi_is_apple_hevc(const AVDOVIDecoderConfigurationRecor
     }
 }
 
+/* Whether the active VideoToolbox session decodes via the Apple Dolby Vision
+ * path. Distinct from videotoolbox_dovi_is_apple_hevc(): session creation may
+ * have fallen back to a plain HEVC session for a Dolby Vision stream, in which
+ * case per-frame DV handling (RPU forwarding, attachment preservation) must
+ * stay off. */
+static int videotoolbox_session_is_dovi(AVCodecContext *avctx)
+{
+    AVVideotoolboxContext *videotoolbox = videotoolbox_get_context(avctx);
+
+    return videotoolbox &&
+           videotoolbox->cm_codec_type == kCMVideoCodecType_DolbyVisionHEVC_FF;
+}
+
 static int videotoolbox_dovi_should_preserve_attachments(AVCodecContext *avctx)
 {
-    return videotoolbox_dovi_is_apple_hevc(videotoolbox_dovi_get_conf(avctx));
+    return videotoolbox_session_is_dovi(avctx);
 }
 
 static int videotoolbox_dovi_is_hlg(const AVDOVIDecoderConfigurationRecord *dovi)
@@ -923,6 +936,9 @@ static void videotoolbox_dovi_tag_output_attachments(AVCodecContext *avctx,
     CFDictionaryRef attachments;
     CGColorSpaceRef colorspace;
     CFStringRef transfer_function;
+
+    if (!videotoolbox_session_is_dovi(avctx))
+        return;
 
     if (!videotoolbox_dovi_is_apple_hevc(dovi) ||
         !videotoolbox_dovi_has_hdr_compatible_base(dovi))
@@ -1268,6 +1284,39 @@ static int videotoolbox_start(AVCodecContext *avctx)
                                           &decoder_cb,               // outputCallback
                                           &videotoolbox->session);   // decompressionSessionOut
 
+    /* If VideoToolbox rejects the Dolby Vision session (unsupported dvvC
+     * combination, hardware limits, ...), retry as a plain HEVC session so
+     * profile 8 streams degrade to hardware HDR10/HLG decode of the
+     * backward-compatible base layer instead of software decoding. Profile 5
+     * is excluded: its IPT base layer would render with wrong colors. */
+    if (status && videotoolbox->cm_codec_type == kCMVideoCodecType_DolbyVisionHEVC_FF &&
+        videotoolbox_dovi_has_hdr_compatible_base(videotoolbox_dovi_get_conf(avctx))) {
+        av_log(avctx, AV_LOG_WARNING,
+               "Dolby Vision VideoToolbox session creation failed (%d); "
+               "retrying as plain HEVC.\n", (int)status);
+        videotoolbox->session = NULL;
+        videotoolbox->cm_codec_type = kCMVideoCodecType_HEVC;
+        if (videotoolbox->cm_fmt_desc) {
+            CFRelease(videotoolbox->cm_fmt_desc);
+            videotoolbox->cm_fmt_desc = NULL;
+        }
+        if (decoder_spec)
+            CFRelease(decoder_spec);
+        decoder_spec = videotoolbox_decoder_config_create(videotoolbox->cm_codec_type, avctx);
+        if (decoder_spec)
+            videotoolbox->cm_fmt_desc = videotoolbox_format_desc_create(videotoolbox->cm_codec_type,
+                                                                        decoder_spec,
+                                                                        avctx->width,
+                                                                        avctx->height);
+        if (videotoolbox->cm_fmt_desc)
+            status = VTDecompressionSessionCreate(NULL,                      // allocator
+                                                  videotoolbox->cm_fmt_desc, // videoFormatDescription
+                                                  decoder_spec,              // videoDecoderSpecification
+                                                  buf_attr,                  // destinationImageBufferAttributes
+                                                  &decoder_cb,               // outputCallback
+                                                  &videotoolbox->session);   // decompressionSessionOut
+    }
+
     if (!status && videotoolbox->cm_codec_type == kCMVideoCodecType_DolbyVisionHEVC_FF) {
         OSStatus property_status;
 
@@ -1481,6 +1530,9 @@ static int videotoolbox_hevc_append_dovi_rpus(AVCodecContext *avctx)
     HEVCContext *h = avctx->priv_data;
     const AVDOVIDecoderConfigurationRecord *dovi = videotoolbox_dovi_get_conf(avctx);
     int convert_p7 = videotoolbox_dovi_needs_p81_conversion(dovi);
+
+    if (!videotoolbox_session_is_dovi(avctx))
+        return 0;
 
     if (!videotoolbox_dovi_is_apple_hevc(dovi))
         return 0;
