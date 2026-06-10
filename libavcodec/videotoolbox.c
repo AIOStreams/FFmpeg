@@ -1012,7 +1012,7 @@ static CFDataRef videotoolbox_dovi_extradata_create(const AVDOVIDecoderConfigura
 {
     uint8_t buf[24] = { 0 };
     uint16_t flags;
-    int profile, el_present, bl_compatibility_id, compression;
+    int profile, el_present, bl_compatibility_id;
 
     if (!videotoolbox_dovi_is_apple_hevc(dovi))
         return NULL;
@@ -1020,11 +1020,9 @@ static CFDataRef videotoolbox_dovi_extradata_create(const AVDOVIDecoderConfigura
     profile = videotoolbox_dovi_effective_profile(dovi);
     el_present = dovi->el_present_flag;
     bl_compatibility_id = dovi->dv_bl_signal_compatibility_id;
-    compression = dovi->dv_md_compression;
     if (videotoolbox_dovi_needs_p81_conversion(dovi)) {
         el_present = 0;
         bl_compatibility_id = 1;
-        compression = AV_DOVI_COMPRESSION_NONE;
     }
 
     buf[0] = dovi->dv_version_major;
@@ -1035,8 +1033,12 @@ static CFDataRef videotoolbox_dovi_extradata_create(const AVDOVIDecoderConfigura
             (!!el_present) << 1 |
             !!dovi->bl_present_flag;
     AV_WB16(buf + 2, flags);
-    buf[4] = (bl_compatibility_id & 0x0f) << 4 |
-             (compression & 0x03) << 2;
+    /* Always signal uncompressed DV metadata. Legacy MPEG-TS muxers fill the
+     * old-spec reserved bits after the compatibility id with ones, which the
+     * mpegts demuxer reads back as dv_md_compression = extended; VideoToolbox
+     * rejects such dvvC atoms with kVTVideoDecoderUnsupportedDataFormatErr.
+     * Backward-compatible profiles must signal 0 here per the Dolby spec. */
+    buf[4] = (bl_compatibility_id & 0x0f) << 4;
 
     return CFDataCreate(kCFAllocatorDefault, buf, sizeof(buf));
 }
