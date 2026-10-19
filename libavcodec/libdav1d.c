@@ -240,6 +240,9 @@ static av_cold int libdav1d_init(AVCodecContext *c)
         s.decode_frame_type = DAV1D_DECODEFRAMETYPE_INTRA;
     else if (c->skip_frame >= AVDISCARD_NONREF)
         s.decode_frame_type = DAV1D_DECODEFRAMETYPE_REFERENCE;
+
+    if (c->skip_loop_filter >= AVDISCARD_ALL)
+        s.inloop_filters = DAV1D_INLOOPFILTER_NONE;
 #endif
 
     res = libdav1d_parse_extradata(c);
