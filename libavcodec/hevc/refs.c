@@ -521,6 +521,9 @@ static int add_candidate_ref(HEVCContext *s, HEVCLayerContext *l,
     }
 
     if (!ref) {
+        /* Only RASL pictures, which are skipped here, may use them. */
+        if (IS_IRAP(s) && s->no_rasl_output_flag)
+            return 0;
         ref = generate_missing_ref(s, l, poc);
         if (!ref)
             return AVERROR(ENOMEM);
